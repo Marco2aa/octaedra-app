@@ -245,15 +245,12 @@ def check_ports_status(adress_url: str, ports: List[int]) -> List[Tuple[int, str
                     for part in parts:
                         if part.endswith("s"):
                             print(part)
-                            # Supprimer tous les caractères non numériques de la latence
-                            latency_str = ''.join(c for c in part if c.isdigit() or c == '.')  # Conserver les chiffres et le point
+                            latency_str = ''.join(c for c in part if c.isdigit() or c == '.') 
                             print(latency_str)
-                            if latency_str:  # Vérifier si la chaîne n'est pas vide
-                                if latency_str.startswith('0') and '.' not in latency_str:
-                                    # Si la latence commence par 0 et ne contient pas de point,
-                                    # alors nous ajoutons un point après le premier caractère
+                            if latency_str:  
+                                if latency_str.startswith('0') and '.' not in latency_str:                         
                                     latency_str = latency_str[0] + '.' + latency_str[1:]
-                                host_latency = float(latency_str) * 1000  # Convertir en millisecondes
+                                host_latency = float(latency_str) * 1000 
                                 print(host_latency)
                                 break
 
