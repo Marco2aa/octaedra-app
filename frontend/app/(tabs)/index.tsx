@@ -6,6 +6,10 @@ import {
   StyleSheet,
   Text,
   View,
+  Dimensions,
+  SafeAreaView,
+  ScrollView,
+  RefreshControl,
 } from "react-native";
 import React, {
   useCallback,
@@ -18,7 +22,7 @@ import { Colors } from "../../constants/Colors";
 import { useTheme } from "@/components/ThemeContext";
 import axios from "axios";
 import { router } from "expo-router";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AntDesign } from "@expo/vector-icons";
 import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -27,7 +31,7 @@ import BottomSheet, {
 
 const Index = () => {
   type Server = {
-    id: string;
+    id: number;
     url: string;
     nom: string;
     protocole: string;
@@ -36,12 +40,23 @@ const Index = () => {
     domain: boolean;
     verify_ssl: boolean;
     method: string;
+    ipv6: boolean;
   };
 
   const [servers, setServers] = useState<Server[]>([]);
   const snapPoints = useMemo(() => ["25%", "50%", "75%"], []);
   const bottomSheetRef = useRef<BottomSheetModal>(null);
-  const [portsMap, setPortsMap] = useState<{ [key: string]: string }>({});
+  const [portsMap, setPortsMap] = useState<{ [key: string]: number }>({});
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => {
+      getServers();
+      setRefreshing(false);
+    }, 2000);
+  }, []);
+
   const getServers = async () => {
     try {
       const response = await axios.get<Server[]>(
@@ -66,9 +81,9 @@ const Index = () => {
       });
       const resolvedPorts = await Promise.all(portPromises);
       const validPorts = resolvedPorts.filter(
-        (port): port is { id: string; numberOfPorts: string } => port !== null
+        (port): port is { id: number; numberOfPorts: number } => port !== null
       );
-      const portsMap = validPorts.reduce<{ [key: string]: string }>(
+      const portsMap = validPorts.reduce<{ [key: string]: number }>(
         (acc, port) => {
           acc[port.id] = port.numberOfPorts;
           return acc;
@@ -82,7 +97,7 @@ const Index = () => {
     }
   };
 
-  const deleteServerById = async (id: string) => {
+  const deleteServerById = async (id: number) => {
     try {
       const response = await axios.delete(
         `http://192.168.1.94:8000/delete-url/${id}`,
@@ -108,7 +123,7 @@ const Index = () => {
     theme === "dark" ? Colors.dark.background : Colors.light.background;
   const textColor = theme === "dark" ? Colors.dark.text : Colors.light.text;
 
-  const handleLongPress = (id: string) => {
+  const handleLongPress = (id: number) => {
     Alert.alert(
       "Confirmation",
       "Êtes-vous sûr de vouloir supprimer cet élément ?",
@@ -127,65 +142,82 @@ const Index = () => {
     );
   };
 
-  const renderItem = ({ item }: { item: Server }) => (
-    <View
-      style={[
-        styles.containerItem,
-        {
-          backgroundColor:
-            theme === "dark"
-              ? Colors.dark.itemcontainer
-              : Colors.light.itemcontainer,
-        },
-      ]}
-    >
-      <Pressable
-        onLongPress={() => handleLongPress(item.id)}
-        onPress={() =>
-          router.push({
-            pathname: "/Serveurs/[id]",
-            params: { id: item.id },
-          })
-        }
-      >
-        <View style={styles.itemContent}>
-          <Text style={[styles.text, { color: textColor }]}>{item.url}</Text>
-
-          <Text style={[styles.text, { color: textColor }]}>{item.nom}</Text>
-          <Text style={[styles.text, { color: textColor }]}>
-            {item.protocole}
-          </Text>
-          <Text style={[styles.text, { color: textColor }]}>
-            {item.qualite_signal}
-          </Text>
-          <Text style={[styles.text, { color: textColor }]}>
-            {item.mode_connexion}
-          </Text>
-          <Text style={[styles.text, { color: textColor }]}>
-            {item.verify_ssl}
-          </Text>
-          <Text style={[styles.text, { color: textColor }]}>{item.domain}</Text>
-          <Text style={[styles.text, { color: textColor }]}>{item.method}</Text>
-          <Text style={[styles.text, { color: textColor }]}>
-            Nombre de ports à l'écoute :{portsMap[item.id]}
-          </Text>
-          <Text style={[styles.text, { color: textColor }]}>
-            Jeudi 23 Mai 2024
-          </Text>
-        </View>
-      </Pressable>
-    </View>
-  );
-
   return (
-    <View style={[styles.mainContainer, { backgroundColor }]}>
-      <FlatList
-        data={servers}
-        keyExtractor={(item, index) => index.toString()}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-      />
-    </View>
+    <ScrollView
+      style={[styles.mainContainer, { backgroundColor }]}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      {servers.map((item) => (
+        <Pressable
+          key={item.id}
+          onLongPress={() => handleLongPress(item.id)}
+          onPress={() =>
+            router.push({
+              pathname: "/Serveurs/[id]",
+              params: { id: item.id },
+            })
+          }
+        >
+          <View
+            style={[
+              styles.containerItem,
+              {
+                backgroundColor:
+                  theme === "dark"
+                    ? Colors.dark.itemcontainer
+                    : Colors.light.itemcontainer,
+              },
+            ]}
+          >
+            <View style={styles.iconcontainer}>
+              <AntDesign name="earth" size={24} color="black" />
+            </View>
+            <View style={styles.itemContent}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 13,
+                  alignItems: "center",
+                  justifyContent: "flex-start",
+                }}
+              >
+                <Text
+                  style={[
+                    styles.text,
+                    { color: "orange", fontSize: 26, fontWeight: "600" },
+                  ]}
+                >
+                  {item.nom}
+                </Text>
+              </View>
+              <View
+                style={{
+                  flexDirection: "row-reverse",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={[styles.text, { color: "grey" }]}>{item.url}</Text>
+                <Text style={[styles.text, { color: "grey" }]}>
+                  {item.protocole}
+                </Text>
+              </View>
+              <Text style={[styles.text, { color: textColor }]}>
+                {item.qualite_signal}
+              </Text>
+
+              <Text style={[styles.text, { color: textColor }]}>
+                {portsMap[item.id] === 0
+                  ? "Cliquez pour scanner"
+                  : `Nombre de ports scannés : ${portsMap[item.id]}`}
+              </Text>
+            </View>
+          </View>
+        </Pressable>
+      ))}
+    </ScrollView>
   );
 };
 
@@ -194,26 +226,33 @@ export default Index;
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    alignItems: "center",
+    marginBottom: 65,
   },
   containerItem: {
     borderRadius: 8,
-    margin: 10,
     padding: 10,
-    width: 300,
-    height: 150,
-    justifyContent: "center",
-    alignItems: "center",
+    paddingLeft: 12,
+    marginTop: 5,
+    marginHorizontal: 10,
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 30,
+    overflow: "hidden",
   },
-  itemContent: {
-    flex: 1,
-    justifyContent: "space-around",
-  },
+  itemContent: {},
   text: {
-    fontSize: 18,
+    fontSize: 20,
+    fontWeight: "300",
   },
   list: {
     paddingBottom: 30,
     marginBottom: 80,
+  },
+  iconcontainer: {
+    backgroundColor: "orange",
+    borderRadius: 8,
+    padding: 5,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

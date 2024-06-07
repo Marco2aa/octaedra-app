@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, Pressable } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import {
   TextInput,
   Menu,
@@ -22,22 +22,15 @@ import axios from "axios";
 import { useFormContext } from "@/components/FormProvider";
 
 const AddServer = () => {
-  const [protocol, setProtocol] = useState("https://");
   const [protocolMenuVisible, setProtocolMenuVisible] = useState(false);
   const [methodMenuVisible, setMethodMenuVisible] = useState(false);
   const [qualiteMenuVisible, setQualiteMenuVisible] = useState(false);
   const [majMenuVisible, setMajMenuVisible] = useState(false);
-  const [url, setUrl] = useState("");
-  const [method, setMethod] = useState("");
-  const [servername, setServername] = useState("");
-  const [isSwitchDomainOn, setIsSwitchDomainOn] = React.useState(false);
-  const [isSwitchSSLOn, setIsSwitchSSLOn] = React.useState(false);
   const [chips, setChips] = useState<ChipData[]>([]);
   const [visibleModal, setVisibleModal] = React.useState(false);
   const [codehttp, setCodehttp] = useState<string>("");
-  const [qualite, setQualite] = useState<string>("");
-  const [update, setUpdate] = useState<string>("");
   const [isSSLSwitchDisabled, setIsSSLSwitchDisabled] = useState(false);
+  const [isIPV6, setIsIPV6] = useState<boolean>(false);
 
   const { formData, setFormData } = useFormContext();
 
@@ -108,6 +101,13 @@ const AddServer = () => {
     }));
   };
 
+  const handleIPVSwitchChange = (value: boolean) => {
+    setFormData((prevFormData) => ({
+      ...prevFormData,
+      isIPV6: value,
+    }));
+  };
+
   const handleMethodChange = (value: string) => {
     setFormData((prevFormData) => ({
       ...prevFormData,
@@ -175,29 +175,14 @@ const AddServer = () => {
     setStatusBarHidden;
   }, []);
 
-  const handleSubmit = async () => {
-    const payload = {
-      servername,
-      protocol,
-      url,
-      method,
-      isSwitchDomainOn,
-      isSwitchSSLOn,
-      chips: chips.map((chip) => chip.label),
-      qualite,
-    };
-    try {
-      const response = await axios.post(
-        "http://192.168.1.94:8000/add-url",
-        payload
-      );
-      const data = response.data;
-      console.log(data);
-    } catch (error) {}
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: "black", padding: 5 }}
+      contentContainerStyle={{
+        justifyContent: "center",
+        alignItems: "flex-start",
+      }}
+    >
       <Text style={styles.text}>Affichage</Text>
       <TextInput
         mode="outlined"
@@ -304,37 +289,32 @@ const AddServer = () => {
           />
         </Menu>
       </Portal>
-      <View style={styles.switchcontainer}>
-        <Text>Vérifier la validité du certificat SSL</Text>
-        <Switch
-          disabled={isSSLSwitchDisabled}
-          value={formData.isSwitchSSLOn}
-          onValueChange={handleSSLSwitchChange}
-        />
-      </View>
-      <View style={styles.switchcontainer}>
-        <Text>Vérifier la validité du nom de domaine</Text>
-        <Switch
-          value={formData.isSwitchDomainOn}
-          onValueChange={handleDomainSwitchChange}
-        />
+      <View style={styles.switchwrapper}>
+        <View style={styles.switchcontainer}>
+          <Text>Vérifier la validité du certificat SSL</Text>
+          <Switch
+            disabled={isSSLSwitchDisabled}
+            value={formData.isSwitchSSLOn}
+            onValueChange={handleSSLSwitchChange}
+          />
+        </View>
+        <View style={styles.switchcontainer}>
+          <Text>Vérifier la validité du nom de domaine</Text>
+          <Switch
+            value={formData.isSwitchDomainOn}
+            onValueChange={handleDomainSwitchChange}
+          />
+        </View>
+        <View style={styles.switchcontainer}>
+          <Text>Utiliser IPV6</Text>
+          <Switch
+            value={formData.isIPV6}
+            onValueChange={handleIPVSwitchChange}
+          />
+        </View>
       </View>
       <View style={styles.chipcontainer}>
         <Text>Codes HTTP valides :</Text>
-        {/* Afficher toutes les puces */}
-        {chips.map((chip, index) => (
-          <Chip
-            key={index}
-            onClose={() => handleDeleteChip(index)}
-            onPress={() => console.log("Pressed")}
-            style={{
-              backgroundColor: chip.color,
-            }}
-          >
-            {chip.label}
-          </Chip>
-        ))}
-        {/* Puce Ajouter */}
         <Chip
           icon={({ color }) => <Ionicons name="add" size={24} color={color} />}
           onPress={showModal}
@@ -342,12 +322,26 @@ const AddServer = () => {
         >
           Ajouter
         </Chip>
+        <View style={styles.chipsWrapper}>
+          {chips.map((chip, index) => (
+            <Chip
+              key={index}
+              onClose={() => handleDeleteChip(index)}
+              onPress={() => console.log("Pressed")}
+              style={{
+                backgroundColor: chip.color,
+              }}
+            >
+              {chip.label}
+            </Chip>
+          ))}
+        </View>
       </View>
       <Portal>
         <Modal
           style={{
             width: "80%",
-            marginLeft: "10%",
+            margin: "10%",
             borderRadius: 8,
           }}
           visible={visibleModal}
@@ -415,6 +409,29 @@ const AddServer = () => {
         </Modal>
       </Portal>
       <Text style={styles.text}>Paramètres</Text>
+      <TextInput
+        mode="outlined"
+        label="Taille des paquets"
+        keyboardType="numeric"
+        value={formData.packet_size.toString()}
+        activeOutlineColor="orange"
+        onChangeText={(text) => {
+          const packetSize = parseInt(text, 10);
+          setFormData({
+            ...formData,
+            packet_size: isNaN(packetSize) ? 0 : packetSize,
+          });
+        }}
+        right={
+          <TextInput.Icon
+            style={{ width: 70, marginRight: 25 }}
+            icon={() => (
+              <Text style={{ fontSize: 17, color: "lightgrey" }}>Octets</Text>
+            )}
+          />
+        }
+        style={[styles.input, { width: "100%" }]}
+      />
       <TextInput
         mode="outlined"
         label="Qualité du signal reseau minimum requise"
@@ -504,7 +521,7 @@ const AddServer = () => {
           <Menu.Item onPress={() => handleMajChange("wifi")} title="Wifi" />
         </Menu>
       </Portal>
-    </SafeAreaView>
+    </ScrollView>
   );
 };
 
@@ -513,17 +530,17 @@ export default AddServer;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 10,
+    // paddingTop: 10,
     backgroundColor: "black",
     alignItems: "flex-start",
     justifyContent: "flex-start",
-    marginTop: -10,
+    // marginTop: -10,
   },
   input: {
     marginBottom: 5,
   },
   menu: {
-    marginTop: 30,
+    // marginTop: 30,
     width: "89%",
   },
   button: {
@@ -552,6 +569,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     width: "100%",
     gap: 10,
+    marginTop: 10,
+    alignItems: "center",
   },
   buttoncontainer: {
     flexDirection: "row",
@@ -563,5 +582,15 @@ const styles = StyleSheet.create({
   },
   buttonLabelError: {
     color: "grey",
+  },
+  switchwrapper: {
+    flexDirection: "column",
+  },
+  chipsWrapper: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    width: "100%",
+    justifyContent: "flex-start",
+    gap: 8,
   },
 });

@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useEffect,
+} from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface FormData {
   servername: string;
@@ -10,6 +17,9 @@ interface FormData {
   chips: ChipData[];
   qualite: string;
   update: string;
+  isIPV6: boolean;
+  timeout: number;
+  packet_size: number;
 }
 
 interface ChipData {
@@ -47,7 +57,25 @@ export const FormProvider: React.FC<{ children: ReactNode }> = ({
     chips: [],
     qualite: "",
     update: "",
+    isIPV6: false,
+    timeout: 1,
+    packet_size: 64,
   });
+
+  useEffect(() => {
+    AsyncStorage.getItem("timeout").then((value) => {
+      if (value) {
+        setFormData((prevFormData) => ({
+          ...prevFormData,
+          timeout: parseInt(value),
+        }));
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem("timeout", formData.timeout.toString());
+  }, [formData.timeout]);
 
   const contextValue = { formData, setFormData };
 

@@ -21,6 +21,7 @@ import {
 import { FormProvider } from "@/components/FormProvider";
 import { useFormContext } from "@/components/FormProvider";
 import axios from "axios";
+import { useTimerContext } from "@/components/TimerContext";
 
 const TIMER_KEY = "TIMER_KEY";
 const INITIAL_TIME = 15 * 60;
@@ -36,6 +37,12 @@ export default function Tablayout() {
   const [lastAppState, setLastAppState] = useState<AppStateStatus>(
     appState.current
   );
+  const { triggerFunctions } = useTimerContext();
+
+  const timerEndFunction = () => {
+    console.log("Timer finished!");
+    triggerFunctions();
+  };
 
   const { formData } = useFormContext();
 
@@ -67,7 +74,11 @@ export default function Tablayout() {
   useEffect(() => {
     const interval = setInterval(() => {
       setTimeLeft((prevTimeLeft) => {
-        const newTimeLeft = prevTimeLeft > 0 ? prevTimeLeft - 1 : INITIAL_TIME;
+        const newTimeLeft = prevTimeLeft > 0 ? prevTimeLeft - 1 : 0;
+        if (newTimeLeft === 0) {
+          timerEndFunction();
+          setTimeLeft(INITIAL_TIME);
+        }
         saveTimer(newTimeLeft);
         return newTimeLeft;
       });
@@ -136,6 +147,8 @@ export default function Tablayout() {
       domain: formData.isSwitchDomainOn,
       verify_ssl: formData.isSwitchSSLOn,
       method: formData.method,
+      ipv6: formData.isIPV6,
+      timeout: formData.timeout,
     };
     try {
       const response = await axios.post(
@@ -181,7 +194,8 @@ export default function Tablayout() {
             left: 0,
             height: 72,
             elevation: 0,
-            backgroundColor: "#FCA71A",
+            backgroundColor: "#242627",
+            borderColor: "#242627",
           },
         }}
       >
@@ -196,14 +210,17 @@ export default function Tablayout() {
             headerTitle: "Ajoutez un serveur",
             headerTitleAlign: "center",
             headerStyle: {
-              backgroundColor: "#FCA71A",
+              backgroundColor: "#242627",
+            },
+            headerTitleStyle: {
+              color: "white",
             },
             headerLeft: () => (
               <TouchableOpacity
                 onPress={() => navigation.navigate("index")}
                 style={{ marginLeft: 15 }}
               >
-                <FontAwesome6 name="arrow-left" size={24} color="black" />
+                <FontAwesome6 name="arrow-left" size={24} color="white" />
               </TouchableOpacity>
             ),
             headerRight: () => (
@@ -211,7 +228,7 @@ export default function Tablayout() {
                 onPress={submitFormData}
                 style={{ marginRight: 15 }}
               >
-                <AntDesign name="circledowno" size={24} color="black" />
+                <AntDesign name="circledowno" size={24} color="white" />
               </TouchableOpacity>
             ),
             tabBarIcon: ({ focused }) => {
@@ -224,7 +241,7 @@ export default function Tablayout() {
                     borderTopWidth: 4,
                   }}
                 >
-                  <FontAwesome6 name="add" size={25} color="black" />
+                  <FontAwesome6 name="add" size={25} color="lightgrey" />
                 </View>
               );
             },
@@ -244,7 +261,7 @@ export default function Tablayout() {
                     borderTopWidth: 4,
                   }}
                 >
-                  <Feather name="settings" size={25} color="black" />
+                  <Feather name="settings" size={25} color="lightgrey" />
                 </View>
               );
             },
@@ -258,7 +275,10 @@ export default function Tablayout() {
             headerTitle: "Nos serveurs",
             headerTitleAlign: "center",
             headerStyle: {
-              backgroundColor: "#FCA71A",
+              backgroundColor: "#242627",
+            },
+            headerTitleStyle: {
+              color: "white",
             },
             headerRight: () => (
               <TouchableOpacity
@@ -267,7 +287,7 @@ export default function Tablayout() {
                 }}
                 style={{ marginRight: 15 }}
               >
-                <FontAwesome name="sort-amount-desc" size={24} color="black" />
+                <FontAwesome name="sort-amount-desc" size={24} color="white" />
               </TouchableOpacity>
             ),
             tabBarIcon: ({ focused }) => {
@@ -295,7 +315,7 @@ export default function Tablayout() {
                     style={{
                       marginTop: 5,
                       fontSize: 20,
-                      color: "black",
+                      color: "white",
                       position: "absolute",
                       bottom: -35,
                     }}
@@ -323,7 +343,7 @@ export default function Tablayout() {
                   }}
                 >
                   <Text>
-                    <FontAwesome6 name="bell" size={25} color="black" />
+                    <FontAwesome6 name="bell" size={25} color="lightgrey" />
                   </Text>
                 </View>
               );
@@ -344,7 +364,7 @@ export default function Tablayout() {
                     borderTopWidth: 4,
                   }}
                 >
-                  <SimpleLineIcons name="login" size={25} color="black" />
+                  <SimpleLineIcons name="login" size={25} color="lightgrey" />
                 </View>
               );
             },

@@ -7,26 +7,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 import jwt
-from jwt.exceptions import InvalidTokenError, PyJWTError
+from jwt.exceptions import PyJWTError
 from datetime import datetime, timedelta, timezone
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
+from scapy.all import IP
+import re
+from ping3 import ping, verbose_ping
+import subprocess
+import time
+import platform
 import socket
 import ssl
 import time
 import subprocess
 import os
+import socket
+import whois
+import requests
+import psutil
+
 
 os.environ['PATH'] += r';C:\Program Files (x86)\Nmap'
 
-
-
-
 app = FastAPI()
 
-
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,6 +79,9 @@ class Url(BaseModel):
     domain: bool
     verify_ssl: bool
     method: str
+    ipv6:bool
+    timeout:int =1
+    packet_size:int = 64
 
 class CodeHttp(BaseModel):
     num_code: int
@@ -86,6 +95,28 @@ class InfoPort(BaseModel):
     status: str
     latency:int
     updatedAt: datetime
+
+class InfoUrl(BaseModel):
+    url_id: int
+    packets_sent: int
+    packets_received: int
+    packets_lost: int
+    packets_loss: float
+    avg_latency: float
+    min_latency: float
+    max_latency: float
+    packet_sizes: int
+    icmp_version: int
+    ip_address: str
+    ttl: int
+    dns_resolution_time: float
+    ssl_issuer: Optional[str] = "Unknown"
+    ssl_issued_on: Optional[datetime] = None
+    serial_number: Optional[str] = "Unknown"
+    domain_creation_date: Optional[datetime] = None
+    domain_expiration_date: Optional[datetime] = None
+    server_version: Optional[str] = "Unknown"
+
 
 
 
@@ -131,7 +162,9 @@ async def get_urls():
                       "mode_connexion": row[5],
                       "domain":row[6],
                       "verify_ssl": row[7],
-                      "method": row[8]
+                      "method": row[8],
+                      "ipv6": row[9],
+                      "packet_size": row[10]
                       } for row in urls]
         return urls_json
     else:
@@ -158,7 +191,9 @@ async def get_url_by_id(id_url: int):
                       "mode_connexion": url[5],
                       "domain":url[6],
                       "verify_ssl": url[7],
-                      "method": url[8]
+                      "method": url[8],
+                      "ipv6":url[9],
+                      "packet_size": url[10]
                       }
         else:
             return {
@@ -169,7 +204,51 @@ async def get_url_by_id(id_url: int):
             "Error": "Erreur de récupération des données depuis la base de données."
             }
     
+
+@app.get('/get/info-url/{url_id}')
+async def get_infourl_by_id(url_id: int):
+    connection = create_connection()
+    if connection:
+        try:
+            cursor = connection.cursor()
+            select_query = "SELECT * FROM infourl WHERE url_id = %s ORDER BY id DESC LIMIT 1"
+            cursor.execute(select_query,(url_id,))
+            info_url = cursor.fetchone()
+            print(info_url)
+            if info_url:
+                return {
+                    "url_id": info_url[1],
+                    "packets_sent": info_url[2],
+                    "packets_received": info_url[3],
+                    "packets_lost": info_url[4],
+                    "packets_loss": info_url[5],
+                    "avg_latency": info_url[6],
+                    "min_latency": info_url[7],
+                    "max_latency": info_url[8],
+                    "packet_sizes": info_url[9],
+                    "icmp_version": info_url[10],
+                    "ip_address": info_url[11],
+                    "ttl": info_url[12],
+                    "dns_resolution_time": info_url[13],
+                    "ssl_issuer": info_url[14],
+                    "ssl_issued_on": info_url[15],
+                    "serial_number": info_url[16],
+                    "domain_creation_date":info_url[17],
+                    "domain_expiration_date": info_url[18],
+                    "server_version": info_url[19]
+                }
+            else:
+                return {"message": f"No info found for url_id {url_id}"}
+        except Exception as e:
+            print(f"Error: {e}")
+            return {"error": str(e)}
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        return {"error": "No database connection"}
     
+
 
 @app.get('/get-codehttp/{id_url}')
 async def get_codehttp_by_id(id_url: int):
@@ -197,6 +276,7 @@ async def get_codehttp_by_id(id_url: int):
         return {
             "Error":"Erreur de récuperation des données depuis la base de données"
         }
+    
 
 
 def scan_ports(adress_url: str) -> List[Port]:
@@ -396,7 +476,7 @@ def add_url(url: Url):
     if connection:
         try:
             cursor = connection.cursor()
-            insert_query = "INSERT into url (url, nom, protocole, qualite_signal, mode_connexion, domain, verify_ssl, method) values (%s, %s, %s, %s, %s, %s, %s, %s)"
+            insert_query = "INSERT into url (url, nom, protocole, qualite_signal, mode_connexion, domain, verify_ssl, method, ipv6, timeout, packet_size) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
             cursor.execute(insert_query, (
                 url.url,
                 url.nom,
@@ -405,7 +485,10 @@ def add_url(url: Url):
                 url.mode_connexion,
                 url.domain,
                 url.verify_ssl,
-                url.method
+                url.method,
+                url.ipv6,
+                url.timeout,
+                url.packet_size
                 ))
             connection.commit()
             url_id = cursor.lastrowid
@@ -417,7 +500,181 @@ def add_url(url: Url):
     else:
         return HTTPException(status_code=500, detail="Erreur de connexion à la base de données.")
     
+from fastapi import HTTPException
 
+
+from datetime import datetime
+
+
+
+def handle_inf(value):
+    if value == float('inf'):
+        return None  
+    else:
+        return value
+
+
+
+
+def gather_info(host, url_id, ipv6, protocole, count=4, timeout=1, packet_size=64):
+    print(f"Gathering info for host: {host}, url_id: {url_id}, ipv6: {ipv6}, protocole: {protocole}, count: {count}, timeout: {timeout}, packet_size: {packet_size}")
+    
+    if ipv6:
+        icmp_version = 6
+    else:
+        icmp_version = 4
+
+    try:
+        ip_address = get_ip_address(host)
+        if not ip_address:
+            raise ValueError(f"Unable to resolve IP address for host: {host}")
+        print(f"IP Address: {ip_address}")
+    except Exception as e:
+        print(f"IP address retrieval failed: {str(e)}")
+        ip_address = "Unknown"
+    
+    try:
+        ping_result = ping_host(host, count, timeout, packet_size, icmp_version)
+        print(f"Ping result: {ping_result}")
+    except Exception as e:
+        print(f"Ping failed: {str(e)}")
+        ping_result = {
+            "packets_sent": 0,
+            "packets_received": 0,
+            "packets_lost": 0,
+            "packet_loss": 100,
+            "avg_latency": float('inf'),
+            "min_latency": float('inf'),
+            "max_latency": float('inf'),
+            "packet_sizes": [0],
+            "icmp_versions": [0]
+        }
+    
+    try:
+        ttl = get_ttl(host)
+        print(f"TTL: {ttl}")
+    except Exception as e:
+        print(f"TTL retrieval failed: {str(e)}")
+        ttl = -1
+    
+    try:
+        dns_info = dns_resolution_info(host)
+        print(f"DNS Info: {dns_info}")
+    except Exception as e:
+        print(f"DNS resolution failed: {str(e)}")
+        dns_info = {"resolution_time_ms": 0}
+    
+    certificate_info = {}
+    if protocole == "https://":
+        try:
+            certificate_info = get_certificate_info(host)
+            print(f"Certificate Info: {certificate_info}")
+        except Exception as e:
+            print(f"Certificate retrieval failed: {str(e)}")
+            certificate_info = {"issuer": "Unknown", "issued_on": None, "serial_number": "Unknown"}
+    else:
+        certificate_info = {"issuer": "Not applicable", "issued_on": None, "serial_number": "Not applicable"}
+    
+    try:
+        domain_info = get_domain_info(host)
+        print(f"Domain Info: {domain_info}")
+    except Exception as e:
+        print(f"Domain info retrieval failed: {str(e)}")
+        domain_info = {"creation_date": None, "expiration_date": None}
+    
+    try:
+        server_version = get_server_version(f"{protocole}{host}")
+        print(f"Server Version: {server_version}")
+    except Exception as e:
+        print(f"Server version retrieval failed: {str(e)}")
+        server_version = "Unknown"
+    
+    info_url = InfoUrl(
+        url_id=url_id,
+        packets_sent=ping_result["packets_sent"],
+        packets_received=ping_result["packets_received"],
+        packets_lost=ping_result["packets_lost"],
+        packets_loss=ping_result["packet_loss"],
+        avg_latency=ping_result["avg_latency"],
+        min_latency=ping_result["min_latency"],
+        max_latency=ping_result["max_latency"],
+        packet_sizes=ping_result["packet_sizes"][0],
+        icmp_version=ping_result["icmp_versions"][0],
+        ip_address=ip_address,
+        ttl=ttl,
+        dns_resolution_time=dns_info["resolution_time_ms"],
+        ssl_issuer=certificate_info.get("issuer", "Unknown"),
+        ssl_issued_on=datetime.strptime(certificate_info["issued_on"], "%d-%m-%Y %H:%M:%S") if certificate_info.get("issued_on") else None,
+        serial_number=certificate_info.get("serial_number", "Unknown"),
+        domain_creation_date=datetime.strptime(domain_info["creation_date"], "%d-%m-%Y %H:%M:%S") if domain_info.get("creation_date") else None,
+        domain_expiration_date=datetime.strptime(domain_info["expiration_date"], "%d-%m-%Y %H:%M:%S") if domain_info.get("expiration_date") else None,
+        server_version=server_version,
+    )
+    
+    print(f"InfoUrl object created: {info_url}")
+    return info_url
+
+
+
+
+
+@app.post('/add-infourl/{url_id}')
+def add_info_url(url_id: int):
+    print(f"Endpoint '/add-infourl/{url_id}' called with url_id: {url_id}")
+    connection = create_connection()
+    if connection:
+        try:
+            cursor = connection.cursor()
+
+            select_query = "SELECT url, timeout, ipv6, packet_size, protocole FROM url WHERE id_url = %s"
+            cursor.execute(select_query, (url_id,))
+            result = cursor.fetchone()
+            print(f"Result from DB: {result}")
+
+            if result:
+                url = result[0]
+                timeout = result[1]
+                ipv6 = result[2]
+                packet_size = result[3]
+                protocole = result[4]
+
+                print(f"Values retrieved from DB - URL: {url}, Timeout: {timeout}, IPv6: {ipv6}, Packet Size: {packet_size}, Protocole: {protocole}")
+                
+                info = gather_info(url, url_id, ipv6, protocole, 4, timeout, packet_size)
+                info.avg_latency = handle_inf(info.avg_latency)
+                info.min_latency = handle_inf(info.min_latency)
+                info.max_latency = handle_inf(info.max_latency)
+                print("coucou")
+                print(f"Gathered Info: {info}")
+
+                insert_query = """
+                INSERT INTO infourl (
+                    url_id, packets_sent, packets_received, packets_lost, packets_loss, 
+                    avg_latency, min_latency, max_latency, packet_sizes, icmp_version, 
+                    ip_address, ttl, dns_resolution_time, ssl_issuer, ssl_issued_on, 
+                    serial_number, domain_creation_date, domain_expiration_date, server_version
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(insert_query, (
+                    info.url_id, info.packets_sent, info.packets_received, info.packets_lost, info.packets_loss,
+                    info.avg_latency, info.min_latency, info.max_latency, info.packet_sizes, info.icmp_version,
+                    info.ip_address, info.ttl, info.dns_resolution_time, info.ssl_issuer, info.ssl_issued_on,
+                    info.serial_number, info.domain_creation_date, info.domain_expiration_date, info.server_version,
+                ))
+                connection.commit()
+
+                return {"message": "Data inserted successfully"}
+            else:
+                return {"error": f"No record found for url_id {url_id}"}
+        except Exception as e:
+            print(f"Exception: {str(e)}")
+            return {"kikou": str(e)}
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("No database connection")
+        return {"error": "No database connection"}
     
 
 @app.post('/add-codehttp/{url_id}')
@@ -565,6 +822,36 @@ def get_ports_by_url(id_url: int):
         raise HTTPException(status_code=500, detail="Erreur de connexion à la base de données")
     
 
+@app.get('/get/info-port/{id_port}')
+def get_info_port_by_id_port(id_port: int):
+    connection = create_connection()
+    if connection:
+        try:
+            cursor = connection.cursor()
+            select_query = """SELECT port.service, port.status, port.latency, port.updatedAt
+                              FROM infoport
+                              WHERE port_id = %s"""
+            cursor.execute(select_query, (id_port,))
+            infoports = cursor.fetchall()
+            infoport_list = []
+            for infoport in infoports:
+                infoport={
+                    "service": infoport[0],
+                    "status": infoport[1],
+                    "latency": infoport[2],
+                    "updatedAt": infoport[3]
+                }
+                infoport_list.append(infoport)
+            cursor.close()
+            connection.close()
+
+            return infoport_list
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erreur lors de la récuperation des informations des ports dans la base de données: {str(e)}")
+    else:
+        raise HTTPException(status_code=500, detail="Erreur lors de la connexion à la base de données")
+    
+
 @app.get('/number-of-ports/{id_url}')
 def get_number_of_ports_by_url(id_url: int):
     connection = create_connection()
@@ -708,6 +995,225 @@ async def register(user: UserSignup):
         raise HTTPException(status_code=500, detail=f"Failed to register user: {str(e)}")
     
     return {"username":user.username}
+
+
+
+
+def ping_host(host, count=4, timeout=1, packet_size=64, icmp_version=4):
+    command = ['ping', '-n', str(count), '-w', str(timeout * 1000), '-l', str(packet_size)]
+    
+    if icmp_version == 6:
+        command.append('-4')
+    else:
+        command.append('-6')
+    command.append(host)
+    print(command)
+    
+    try:
+        output = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True)
+        print(f"Command output:\n{output}")
+        
+        latency_info = re.findall(r'temps[=<](\d+) ms', output)
+        if not latency_info:
+            raise ValueError("No latency information found in ping output")
+        
+        latencies = list(map(int, latency_info))
+        avg_latency = sum(latencies) / len(latencies)
+        min_latency = min(latencies)
+        max_latency = max(latencies)
+        packets_sent = count
+        packets_received = len(latencies)
+        packets_lost = packets_sent - packets_received
+        packet_loss = (packets_lost / packets_sent) * 100
+        
+        return {
+            "packets_sent": packets_sent,
+            "packets_received": packets_received,
+            "packets_lost": packets_lost,
+            "packet_loss": packet_loss,
+            "avg_latency": avg_latency,
+            "min_latency": min_latency,
+            "max_latency": max_latency,
+            "packet_sizes": [packet_size] * packets_received,
+            "icmp_versions": [icmp_version] * packets_received
+        }
+    except subprocess.CalledProcessError as e:
+        print(f"Command error:\n{e.output}")
+        return {
+            "packets_sent": count,
+            "packets_received": 0,
+            "packets_lost": count,
+            "packet_loss": 100.0,
+            "avg_latency": float('inf'),
+            "min_latency": float('inf'),
+            "max_latency": float('inf'),
+            "packet_sizes": [packet_size] * count,
+            "icmp_versions": [icmp_version] * count
+        }
+
+def get_ip_address(hostname):
+    try:
+        ip_address = socket.gethostbyname(hostname)
+        return ip_address
+    except socket.gaierror:
+        return None
+
+hostname = "google.com"
+ip_address = get_ip_address(hostname)
+if ip_address:
+    print(f"L'adresse IP de {hostname} est : {ip_address}")
+else:
+    print(f"Impossible de résoudre l'adresse IP pour {hostname}")
+
+
+
+def get_ttl(hostname):
+    try:
+        packet = IP(dst=hostname) / " "
+        ttl = packet.ttl
+        return ttl
+    except Exception as e:
+        print(f"Erreur lors de la récupération du TTL : {e}")
+        return None
+
+hostname = "google.com"
+ttl = get_ttl(hostname)
+if ttl is not None:
+    print(f"Le TTL vers {hostname} est : {ttl}")
+else:
+    print(f"Impossible de récupérer le TTL vers {hostname}")
+
+
+
+
+def dns_resolution_info(hostname):
+    try:
+        start_time = time.time()
+        ip_address = socket.gethostbyname(hostname)
+        end_time = time.time()
+        resolution_time = (end_time - start_time) * 1000 
+        return {
+            "hostname": hostname,
+            "ip_address": ip_address,
+            "resolution_time_ms": resolution_time
+        }
+    except socket.gaierror as e:
+        return {
+            "hostname": hostname,
+            "error": str(e)
+        }
+
+hostname = "google.com"
+resolution_info = dns_resolution_info(hostname)
+print(f"Hostname: {resolution_info['hostname']}")
+if 'ip_address' in resolution_info:
+    print(f"IP Address: {resolution_info['ip_address']}")
+    print(f"Resolution Time: {resolution_info['resolution_time_ms']} ms")
+else:
+    print(f"Error: {resolution_info['error']}")
+
+
+
+
+def get_certificate_info(hostname):
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((hostname, 443)) as sock:
+            with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                der_cert = ssock.getpeercert(binary_form=True)
+                cert = x509.load_der_x509_certificate(der_cert, default_backend())
+
+                issued_on = cert.not_valid_before
+                expires_on = cert.not_valid_after
+
+                issued_on_french = issued_on.strftime("%d-%m-%Y %H:%M:%S")
+                expires_on_french = expires_on.strftime("%d-%m-%Y %H:%M:%S")
+
+                serial_number = format(cert.serial_number, 'x').upper()
+
+                return {
+                    "hostname": hostname,
+                    "issuer": cert.issuer.rfc4514_string(),
+                    "issued_on": issued_on_french,
+                    "expires_on": expires_on_french,
+                    "serial_number": serial_number,
+                }
+    except ssl.SSLCertVerificationError as e:
+        if "certificate has expired" in str(e):
+            return {
+                "hostname": hostname,
+                "issuer": "Expired",
+                "issued_on": None,
+                "expires_on": "Expired",
+                "serial_number": "Expired",
+            }
+        else:
+            return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+hostname = "google.com"
+certificate_info = get_certificate_info(hostname)
+
+if "error" in certificate_info:
+    print(f"Error fetching certificate info: {certificate_info['error']}")
+else:
+    print(f"Hostname: {certificate_info['hostname']}")
+    print(f"Issuer: {certificate_info['issuer']}")
+    print(f"Issued On: {certificate_info['issued_on']}")
+    print(f"Expires On: {certificate_info['expires_on']}")
+    print(f"Serial Number: {certificate_info['serial_number']}")
+
+
+def get_domain_info(domain):
+    try:
+        domain_info = whois.whois(domain)
+        creation_date = domain_info.creation_date
+        expiration_date = domain_info.expiration_date
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+        if isinstance(expiration_date, list):
+            expiration_date = expiration_date[0]
+
+        creation_date_in_french = creation_date.strftime("%d-%m-%Y %H:%M:%S")
+        expiration_date_in_french = expiration_date.strftime("%d-%m-%Y %H:%M:%S")
+
+        return {
+            "domain": domain,
+            "creation_date": creation_date_in_french,
+            "expiration_date": expiration_date_in_french
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+domain = "google.com"
+domain_info = get_domain_info(domain)
+
+if "error" in domain_info:
+    print(f"Error fetching domain info: {domain_info['error']}")
+else:
+    print(f"Domain: {domain_info['domain']}")
+    print(f"Creation Date: {domain_info['creation_date']}")
+    print(f"Expiration Date: {domain_info['expiration_date']}")
+
+
+
+def get_server_version(url):
+    try:
+        response = requests.head(url)
+        server_header = response.headers.get('Server')
+        if server_header:
+            return server_header
+        else:
+            return "Version du serveur non disponible"
+    except requests.exceptions.RequestException as e:
+        return f"Erreur lors de la récupération des en-têtes HTTP : {e}"
+
+url = "https://corsicalinea.octaedra.com"
+server_version = get_server_version(url)
+print(f"Version du serveur web : {server_version}")
+
+
+
 
 
 

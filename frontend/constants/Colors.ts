@@ -15,10 +15,10 @@ export  const Colors = {
   },
   dark: {
     text: '#ECEDEE',
-    background: 'black',
+    background: '#242627',
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    itemcontainer: '#39393B',
+    icon: '#14191D',
+    itemcontainer: '#323537',
     tabIconDefault: '#9BA1A6',
     tabIconSelected: tintColorDark,
   },
