@@ -22,13 +22,51 @@ const ServerDetail: React.FC = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const { subscribeToTimerEnd } = useTimerContext();
-  const { ports, setPorts, infoUrl, setInfoUrl } = useDataContext();
+  const { state, dispatch } = useDataContext();
 
   const getPortsByServer = async () => {
     try {
-      const response = await axios.get(`http://192.168.1.94:8000/ports/${id}`);
+      const response = await axios.get<Port[]>(
+        `http://192.168.1.94:8000/ports/${id}`
+      );
       console.log("Ports response:", response.data);
-      setPorts(response.data);
+      const fetchedPorts = response.data;
+      const completePorts = await Promise.all(
+        fetchedPorts.map(async (port) => {
+          try {
+            const responseTwo = await axios.get(
+              `http://192.168.1.94:8000/get/info-port/${port.id_port}`
+            );
+            const infoPortArray = responseTwo.data;
+            if (infoPortArray.length > 0) {
+              const { service, status, latency, updatedAt } = infoPortArray[0];
+              console.log(
+                `InfoPort for port ${port.id_port}:`,
+                infoPortArray[0]
+              );
+              const completePort = {
+                ...port,
+                service,
+                status,
+                latency,
+                updatedAt,
+              };
+              console.log("Complete port:", completePort);
+              return completePort;
+            } else {
+              console.log(`No additional info found for port ${port.id_port}`);
+              return port;
+            }
+          } catch (error) {
+            console.error(
+              `Erreur lors de la récupération des informations du port ${port.id_port}`,
+              error
+            );
+            return port;
+          }
+        })
+      );
+      dispatch({ type: "SET_PORTS", payload: completePorts });
     } catch (error) {
       console.error(
         "Erreur lors de la recuperation des ports du serveur",
@@ -43,8 +81,7 @@ const ServerDetail: React.FC = () => {
         `http://192.168.1.94:8000/get/info-url/${id}`
       );
       console.log("Info URL response:", response.data);
-
-      setInfoUrl(response.data);
+      dispatch({ type: "SET_INFO_URL", payload: response.data });
     } catch (error) {
       console.error("Erreur lors de la récuperation des infos serveurs", error);
     }
@@ -106,64 +143,64 @@ const ServerDetail: React.FC = () => {
 
   return (
     <View style={[styles.mainContainer, { backgroundColor }]}>
-      {infoUrl && (
+      {state.infoUrl && (
         <View style={styles.infoContainer}>
           <Text style={[styles.text, { color: textColor }]}>
-            IP Address: {infoUrl.ip_address}
+            IP Address: {state.infoUrl.ip_address}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Server Version: {infoUrl.server_version}
+            Server Version: {state.infoUrl.server_version}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Packets Sent: {infoUrl.packets_sent}
+            Packets Sent: {state.infoUrl.packets_sent}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Packets Received: {infoUrl.packets_received}
+            Packets Received: {state.infoUrl.packets_received}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Packets Lost: {infoUrl.packets_lost}
+            Packets Lost: {state.infoUrl.packets_lost}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Average Latency: {infoUrl.avg_latency}
+            Average Latency: {state.infoUrl.avg_latency}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Min Latency: {infoUrl.min_latency}
+            Min Latency: {state.infoUrl.min_latency}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Max Latency: {infoUrl.max_latency}
+            Max Latency: {state.infoUrl.max_latency}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Packet Sizes: {infoUrl.packet_sizes}
+            Packet Sizes: {state.infoUrl.packet_sizes}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            ICMP Version: {infoUrl.icmp_version}
+            ICMP Version: {state.infoUrl.icmp_version}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            TTL: {infoUrl.ttl}
+            TTL: {state.infoUrl.ttl}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            DNS Resolution Time: {infoUrl.dns_resolution_time}
+            DNS Resolution Time: {state.infoUrl.dns_resolution_time}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            SSL Issuer: {infoUrl.ssl_issuer}
+            SSL Issuer: {state.infoUrl.ssl_issuer}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            SSL Issued On: {infoUrl.ssl_issued_on}
+            SSL Issued On: {state.infoUrl.ssl_issued_on}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            SSL Issued On: {infoUrl.ssl_issued_on}
+            SSL Issued On: {state.infoUrl.ssl_issued_on}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Domain Creation Date: {infoUrl.domain_creation_date}
+            Domain Creation Date: {state.infoUrl.domain_creation_date}
           </Text>
           <Text style={[styles.text, { color: textColor }]}>
-            Domain Expiration Date: {infoUrl.domain_expiration_date}
+            Domain Expiration Date: {state.infoUrl.domain_expiration_date}
           </Text>
         </View>
       )}
       <View>
         <FlatList
-          data={ports}
+          data={state.ports}
           keyExtractor={(item) => item.id_port}
           renderItem={renderPortItem}
           contentContainerStyle={styles.list}

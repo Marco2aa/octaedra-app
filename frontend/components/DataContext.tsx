@@ -1,5 +1,5 @@
 // DataContext.tsx
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { ReactNode, createContext, useContext, useReducer } from "react";
 
 type Port = {
   id_port: string;
@@ -32,34 +32,50 @@ type InfoUrl = {
   url_id: number;
 };
 
-type DataContextType = {
+type State = {
   ports: Port[];
-  setPorts: React.Dispatch<React.SetStateAction<Port[]>>;
   infoUrl: InfoUrl | null;
-  setInfoUrl: React.Dispatch<React.SetStateAction<InfoUrl | null>>;
 };
 
-const DataContext = createContext<DataContextType | undefined>(undefined);
+type Action =
+  | { type: "SET_PORTS"; payload: Port[] }
+  | { type: "SET_INFO_URL"; payload: InfoUrl };
 
-export const useDataContext = () => {
-  const context = useContext(DataContext);
-  if (!context) {
-    throw new Error("useDataContext must be used within a DataProvider");
+const initialState: State = {
+  ports: [],
+  infoUrl: null,
+};
+
+const dataReducer = (state: State, action: Action): State => {
+  switch (action.type) {
+    case "SET_PORTS":
+      return { ...state, ports: action.payload };
+    case "SET_INFO_URL":
+      return { ...state, infoUrl: action.payload };
+    default:
+      return state;
   }
-  return context;
 };
 
 type DataProviderProps = {
   children: ReactNode;
 };
 
-export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
-  const [ports, setPorts] = useState<Port[]>([]);
-  const [infoUrl, setInfoUrl] = useState<InfoUrl | null>(null);
+const DataContext = createContext<{
+  state: State;
+  dispatch: React.Dispatch<Action>;
+}>({
+  state: initialState,
+  dispatch: () => null,
+});
 
+export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
+  const [state, dispatch] = useReducer(dataReducer, initialState);
   return (
-    <DataContext.Provider value={{ ports, setPorts, infoUrl, setInfoUrl }}>
+    <DataContext.Provider value={{ state, dispatch }}>
       {children}
     </DataContext.Provider>
   );
 };
+
+export const useDataContext = () => useContext(DataContext);

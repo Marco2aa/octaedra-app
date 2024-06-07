@@ -800,7 +800,8 @@ def get_ports_by_url(id_url: int):
             select_query =  """ SELECT port.id_port, port.port
                                 FROM port 
                                 INNER JOIN serveurPort ON port.id_port = serveurPort.id_port
-                                WHERE serveurPort.id_url = %s"""
+                                WHERE serveurPort.id_url = %s
+                                """
             cursor.execute(select_query, (id_url,))
             ports = cursor.fetchall()
             port_list = []
@@ -828,9 +829,11 @@ def get_info_port_by_id_port(id_port: int):
     if connection:
         try:
             cursor = connection.cursor()
-            select_query = """SELECT port.service, port.status, port.latency, port.updatedAt
+            select_query = """SELECT service, status, latency, updatedAt
                               FROM infoport
-                              WHERE port_id = %s"""
+                              WHERE port_id = %s
+                              ORDER BY id DESC
+                              LIMIT 1"""
             cursor.execute(select_query, (id_port,))
             infoports = cursor.fetchall()
             infoport_list = []
